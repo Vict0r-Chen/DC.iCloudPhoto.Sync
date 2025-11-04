@@ -2,12 +2,15 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 
 namespace DC.iCloudPhoto.Sync;
 
@@ -16,11 +19,19 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private const long SizeToleranceBytes = 1024;
     private const double TimeToleranceSeconds = 1d;
     private const int DefaultPageSize = 50;
+    private const int MaxLogLines = 500;
+    private static readonly string SettingsFilePath = Path.Combine(
+        AppDomain.CurrentDomain.BaseDirectory, "settings.json");
+    private static readonly string LogDirectory = Path.Combine(
+        AppDomain.CurrentDomain.BaseDirectory, "logs");
+    private static readonly string LogFilePath = Path.Combine(
+        LogDirectory, $"log_{DateTime.Now:yyyyMMdd}.txt");
 
     private readonly List<FileSyncItem> _allPreviewItems = new();
     private readonly List<FileSyncItem> _filteredPreviewItems = new();
     private readonly ObservableCollection<FileSyncItem> _pagedItems = new();
     private readonly StringBuilder _logBuilder = new();
+    private readonly Queue<string> _logQueue = new();
 
     private string _sourceFolder = @"E:\Photos";
     private string _targetFolder = ResolveDefaultTargetPath();
@@ -28,6 +39,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private DateTime? _endDate;
     private bool _includeJpg = true;
     private bool _includeMp4 = true;
+    private bool _includeMov = true;
     private int _pageSize = DefaultPageSize;
     private int _currentPage = 1;
     private bool _isBusy;
@@ -40,6 +52,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         InitializeComponent();
         DataContext = this;
+        InitializeLogging();
+        LoadSettings();
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -51,25 +65,49 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public string SourceFolder
     {
         get => _sourceFolder;
-        set => SetProperty(ref _sourceFolder, value);
+        set
+        {
+            if (SetProperty(ref _sourceFolder, value))
+            {
+                SaveSettings();
+            }
+        }
     }
 
     public string TargetFolder
     {
         get => _targetFolder;
-        set => SetProperty(ref _targetFolder, value);
+        set
+        {
+            if (SetProperty(ref _targetFolder, value))
+            {
+                SaveSettings();
+            }
+        }
     }
 
     public DateTime? StartDate
     {
         get => _startDate;
-        set => SetProperty(ref _startDate, value);
+        set
+        {
+            if (SetProperty(ref _startDate, value))
+            {
+                SaveSettings();
+            }
+        }
     }
 
     public DateTime? EndDate
     {
         get => _endDate;
-        set => SetProperty(ref _endDate, value);
+        set
+        {
+            if (SetProperty(ref _endDate, value))
+            {
+                SaveSettings();
+            }
+        }
     }
 
     public bool IncludeJpg
@@ -80,6 +118,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             if (SetProperty(ref _includeJpg, value))
             {
                 OnPropertyChanged(nameof(CanSync));
+                SaveSettings();
             }
         }
     }
@@ -92,6 +131,20 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             if (SetProperty(ref _includeMp4, value))
             {
                 OnPropertyChanged(nameof(CanSync));
+                SaveSettings();
+            }
+        }
+    }
+
+    public bool IncludeMov
+    {
+        get => _includeMov;
+        set
+        {
+            if (SetProperty(ref _includeMov, value))
+            {
+                OnPropertyChanged(nameof(CanSync));
+                SaveSettings();
             }
         }
     }
@@ -205,10 +258,47 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 return;
             }
 
+            AppendLog("========================================");
+            AppendLog("开始预览");
+
+            // 记录时间范围
+            var timeRangeInfo = "时间范围：";
+            if (options.StartUtc.HasValue && options.EndUtc.HasValue)
+            {
+                timeRangeInfo += $"{options.StartUtc.Value.ToLocalTime():yyyy-MM-dd} 至 {options.EndUtc.Value.ToLocalTime():yyyy-MM-dd}";
+            }
+            else if (options.StartUtc.HasValue)
+            {
+                timeRangeInfo += $"{options.StartUtc.Value.ToLocalTime():yyyy-MM-dd} 起";
+            }
+            else if (options.EndUtc.HasValue)
+            {
+                timeRangeInfo += $"至 {options.EndUtc.Value.ToLocalTime():yyyy-MM-dd}";
+            }
+            else
+            {
+                timeRangeInfo += "全部";
+            }
+            AppendLog(timeRangeInfo);
+
+            // 记录文件类型
+            var extensions = options.Extensions != null ? string.Join(", ", options.Extensions) : "全部";
+            AppendLog($"文件类型：{extensions}");
+
             AppendLog("开始扫描源文件夹和目标文件夹...");
             var previewItems = await Task.Run(() => BuildPreviewInternal(options, AppendLog));
             ApplyPreview(previewItems);
-            AppendLog($"预览完成，共 {previewItems.Count} 条记录。");
+
+            // 记录统计信息
+            var pendingCount = previewItems.Count(i => i.Status == SyncStatus.PendingCopy);
+            var upToDateCount = previewItems.Count(i => i.Status == SyncStatus.UpToDate);
+            var targetOnlyCount = previewItems.Count(i => i.Status == SyncStatus.TargetOnly);
+
+            AppendLog($"预览完成：共 {previewItems.Count} 项");
+            AppendLog($"  - 等待同步：{pendingCount} 项");
+            AppendLog($"  - 已存在：{upToDateCount} 项");
+            AppendLog($"  - 仅目标存在：{targetOnlyCount} 项");
+            AppendLog("========================================");
         });
     }
 
@@ -330,7 +420,59 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void OnClearLogClicked(object sender, RoutedEventArgs e)
     {
         _logBuilder.Clear();
+        _logQueue.Clear();
         LogText = string.Empty;
+    }
+
+    private void OnOpenSourceFolderClicked(object sender, RoutedEventArgs e)
+    {
+        var menuItem = sender as MenuItem;
+        var contextMenu = menuItem?.Parent as ContextMenu;
+        var dataGrid = contextMenu?.PlacementTarget as DataGrid;
+        var item = dataGrid?.SelectedItem as FileSyncItem;
+
+        if (item == null || string.IsNullOrWhiteSpace(item.SourcePath))
+        {
+            MessageBox.Show(this, "源文件不存在。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        OpenFileInExplorer(item.SourcePath);
+    }
+
+    private void OnOpenTargetFolderClicked(object sender, RoutedEventArgs e)
+    {
+        var menuItem = sender as MenuItem;
+        var contextMenu = menuItem?.Parent as ContextMenu;
+        var dataGrid = contextMenu?.PlacementTarget as DataGrid;
+        var item = dataGrid?.SelectedItem as FileSyncItem;
+
+        if (item == null || string.IsNullOrWhiteSpace(item.TargetPath))
+        {
+            MessageBox.Show(this, "目标文件不存在。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        OpenFileInExplorer(item.TargetPath);
+    }
+
+    private void OpenFileInExplorer(string filePath)
+    {
+        try
+        {
+            if (File.Exists(filePath))
+            {
+                Process.Start("explorer.exe", $"/select,\"{filePath}\"");
+            }
+            else
+            {
+                MessageBox.Show(this, "文件不存在。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"无法打开文件夹：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     private void ApplyPreview(IReadOnlyList<FileSyncItem> items)
@@ -464,6 +606,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             extensions.Add(".mp4");
         }
 
+        if (IncludeMov)
+        {
+            extensions.Add(".mov");
+        }
+
         return extensions.Count > 0 ? extensions : null;
     }
 
@@ -483,7 +630,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             FileMetadata? matched = null;
             if (targetByName.TryGetValue(source.FileName, out var nameMatches))
             {
-                matched = nameMatches.FirstOrDefault(candidate => AreSame(source, candidate));
+                // 文件名相同的情况，只要大小相同就认为是相同文件
+                matched = nameMatches.FirstOrDefault(candidate => AreSameByNameAndSize(source, candidate));
                 if (matched != null)
                 {
                     matchedTargets.Add(matched.FullPath);
@@ -599,16 +747,26 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         return null;
     }
 
+    private static bool AreSameByNameAndSize(FileMetadata left, FileMetadata right)
+    {
+        // 文件名相同的情况下，只要大小相同就视为相同文件
+        var sizeDiff = Math.Abs(left.Size - right.Size);
+        return sizeDiff <= SizeToleranceBytes;
+    }
+
     private static bool AreSame(FileMetadata left, FileMetadata right)
     {
+        // 文件名不同的情况下，需要大小相同 + (创建时间或修改时间有一个相同)
         var sizeDiff = Math.Abs(left.Size - right.Size);
         if (sizeDiff > SizeToleranceBytes)
         {
             return false;
         }
 
-        var timeDiff = Math.Abs((left.LastWriteTimeUtc - right.LastWriteTimeUtc).TotalSeconds);
-        return timeDiff <= TimeToleranceSeconds;
+        var creationTimeDiff = Math.Abs((left.CreationTimeUtc - right.CreationTimeUtc).TotalSeconds);
+        var modifiedTimeDiff = Math.Abs((left.LastWriteTimeUtc - right.LastWriteTimeUtc).TotalSeconds);
+
+        return creationTimeDiff <= TimeToleranceSeconds || modifiedTimeDiff <= TimeToleranceSeconds;
     }
 
     private static List<FileMetadata> EnumerateFiles(
@@ -641,6 +799,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     info.Length,
                     info.CreationTimeUtc,
                     info.CreationTime,
+                    info.LastWriteTimeUtc,
+                    info.LastWriteTime,
                     Path.GetRelativePath(root, info.FullName));
             }
             catch (Exception ex)
@@ -739,8 +899,35 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void AppendLogInternal(string text)
     {
-        _logBuilder.AppendLine(text);
+        // 添加到队列，维护500条限制
+        _logQueue.Enqueue(text);
+        if (_logQueue.Count > MaxLogLines)
+        {
+            _logQueue.Dequeue();
+
+            // 重建日志显示
+            _logBuilder.Clear();
+            foreach (var line in _logQueue)
+            {
+                _logBuilder.AppendLine(line);
+            }
+        }
+        else
+        {
+            _logBuilder.AppendLine(text);
+        }
+
         LogText = _logBuilder.ToString();
+
+        // 写入文件
+        try
+        {
+            File.AppendAllText(LogFilePath, text + Environment.NewLine);
+        }
+        catch
+        {
+            // 忽略文件写入错误，避免影响主流程
+        }
     }
 
     private static string NormalizePath(string path)
@@ -753,6 +940,95 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         var expanded = Environment.ExpandEnvironmentVariables(@"%USERPROFILE%\Pictures\iCloud Photos\Photos");
         return expanded;
+    }
+
+    private void InitializeLogging()
+    {
+        try
+        {
+            if (!Directory.Exists(LogDirectory))
+            {
+                Directory.CreateDirectory(LogDirectory);
+            }
+
+            // 加载今天的日志文件，最多显示500条
+            if (File.Exists(LogFilePath))
+            {
+                var lines = File.ReadAllLines(LogFilePath);
+                var startIndex = Math.Max(0, lines.Length - MaxLogLines);
+                for (int i = startIndex; i < lines.Length; i++)
+                {
+                    _logQueue.Enqueue(lines[i]);
+                    _logBuilder.AppendLine(lines[i]);
+                }
+                LogText = _logBuilder.ToString();
+            }
+        }
+        catch (Exception ex)
+        {
+            // 无法记录到日志，因为日志系统还没初始化
+            MessageBox.Show(this, $"初始化日志系统失败：{ex.Message}", "警告", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void LoadSettings()
+    {
+        try
+        {
+            if (File.Exists(SettingsFilePath))
+            {
+                var json = File.ReadAllText(SettingsFilePath);
+                var settings = JsonSerializer.Deserialize<UserSettings>(json);
+                if (settings != null)
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.SourceFolder))
+                        _sourceFolder = settings.SourceFolder;
+                    if (!string.IsNullOrWhiteSpace(settings.TargetFolder))
+                        _targetFolder = settings.TargetFolder;
+                    _startDate = settings.StartDate;
+                    _endDate = settings.EndDate;
+                    _includeJpg = settings.IncludeJpg;
+                    _includeMp4 = settings.IncludeMp4;
+                    _includeMov = settings.IncludeMov;
+
+                    OnPropertyChanged(nameof(SourceFolder));
+                    OnPropertyChanged(nameof(TargetFolder));
+                    OnPropertyChanged(nameof(StartDate));
+                    OnPropertyChanged(nameof(EndDate));
+                    OnPropertyChanged(nameof(IncludeJpg));
+                    OnPropertyChanged(nameof(IncludeMp4));
+                    OnPropertyChanged(nameof(IncludeMov));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"加载设置失败：{ex.Message}");
+        }
+    }
+
+    private void SaveSettings()
+    {
+        try
+        {
+            var settings = new UserSettings
+            {
+                SourceFolder = SourceFolder,
+                TargetFolder = TargetFolder,
+                StartDate = StartDate,
+                EndDate = EndDate,
+                IncludeJpg = IncludeJpg,
+                IncludeMp4 = IncludeMp4,
+                IncludeMov = IncludeMov
+            };
+
+            var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(SettingsFilePath, json);
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"保存设置失败：{ex.Message}");
+        }
     }
 
     protected bool SetProperty<T>(ref T storage, T value, [CallerMemberName] string? propertyName = null)
@@ -914,6 +1190,8 @@ internal sealed record FileMetadata(
     string FullPath,
     string FileName,
     long Size,
+    DateTime CreationTimeUtc,
+    DateTime CreationTimeLocal,
     DateTime LastWriteTimeUtc,
     DateTime LastWriteTimeLocal,
     string RelativePath);
@@ -925,4 +1203,15 @@ internal sealed class SyncOptions
     public DateTime? StartUtc { get; init; }
     public DateTime? EndUtc { get; init; }
     public HashSet<string>? Extensions { get; init; }
+}
+
+internal sealed class UserSettings
+{
+    public string SourceFolder { get; set; } = string.Empty;
+    public string TargetFolder { get; set; } = string.Empty;
+    public DateTime? StartDate { get; set; }
+    public DateTime? EndDate { get; set; }
+    public bool IncludeJpg { get; set; } = true;
+    public bool IncludeMp4 { get; set; } = true;
+    public bool IncludeMov { get; set; } = true;
 }
