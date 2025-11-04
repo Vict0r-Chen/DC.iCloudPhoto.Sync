@@ -31,7 +31,7 @@
         </Grid.RowDefinitions>
 
         <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
-            <StackPanel Margin="24" MaxWidth="1400">
+            <StackPanel Margin="24">
                 <Border Style="{StaticResource SectionCardStyle}">
                     <StackPanel>
                         <Grid Margin="0,0,0,12">
