@@ -136,7 +136,7 @@
                                     IsEnabled="{Binding IsNotBusy}" />
                         </DockPanel>
                         <TextBox Margin="0,12,0,0"
-                                 Text="{Binding LogText}"
+                                 Text="{Binding LogText, Mode=OneWay}"
                                  TextWrapping="Wrap"
                                  AcceptsReturn="True"
                                  VerticalScrollBarVisibility="Auto"

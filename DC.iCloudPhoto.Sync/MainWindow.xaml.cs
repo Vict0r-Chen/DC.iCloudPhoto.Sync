@@ -565,8 +565,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     info.FullName,
                     info.Name,
                     info.Length,
-                    info.LastWriteTimeUtc,
-                    info.LastWriteTime,
+                    info.CreationTimeUtc,
+                    info.CreationTime,
                     Path.GetRelativePath(root, info.FullName));
             }
             catch (Exception ex)
