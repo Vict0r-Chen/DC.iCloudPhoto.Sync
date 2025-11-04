@@ -103,6 +103,26 @@
                             </StackPanel>
                         </DockPanel>
 
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <TextBlock Text="显示状态：" VerticalAlignment="Center" Margin="0,0,12,0" FontWeight="SemiBold" />
+                            <CheckBox Content="等待同步"
+                                      IsChecked="{Binding ShowPendingCopy}"
+                                      Margin="0,0,16,0"
+                                      IsEnabled="{Binding IsNotBusy}" />
+                            <CheckBox Content="已存在"
+                                      IsChecked="{Binding ShowUpToDate}"
+                                      Margin="0,0,16,0"
+                                      IsEnabled="{Binding IsNotBusy}" />
+                            <CheckBox Content="仅目标存在"
+                                      IsChecked="{Binding ShowTargetOnly}"
+                                      IsEnabled="{Binding IsNotBusy}" />
+                        </StackPanel>
+
+                        <TextBlock Text="{Binding StatisticsSummary}"
+                                   Margin="0,0,0,8"
+                                   FontStyle="Italic"
+                                   Foreground="#FF64748B" />
+
                         <DataGrid ItemsSource="{Binding PagedItems}"
                                   AutoGenerateColumns="False"
                                   IsReadOnly="True"
@@ -113,13 +133,11 @@
                                   HeadersVisibility="Column">
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="状态" Binding="{Binding StatusLabel}" Width="120" />
-                                <DataGridTextColumn Header="文件名" Binding="{Binding FileName}" Width="180" />
-                                <DataGridTextColumn Header="源路径" Binding="{Binding SourcePath}" Width="*" />
-                                <DataGridTextColumn Header="目标路径" Binding="{Binding TargetDisplayPath}" Width="*" />
+                                <DataGridTextColumn Header="文件名" Binding="{Binding FileName}" Width="*" />
                                 <DataGridTextColumn Header="源时间" Binding="{Binding SourceModified, StringFormat=yyyy-MM-dd HH:mm:ss}" Width="170" />
                                 <DataGridTextColumn Header="目标时间" Binding="{Binding TargetModified, StringFormat=yyyy-MM-dd HH:mm:ss}" Width="170" />
-                                <DataGridTextColumn Header="源大小(B)" Binding="{Binding SourceSize}" Width="120" />
-                                <DataGridTextColumn Header="目标大小(B)" Binding="{Binding TargetSize}" Width="120" />
+                                <DataGridTextColumn Header="源大小(MB)" Binding="{Binding SourceSizeMB}" Width="120" />
+                                <DataGridTextColumn Header="目标大小(MB)" Binding="{Binding TargetSizeMB}" Width="120" />
                             </DataGrid.Columns>
                         </DataGrid>
                     </StackPanel>

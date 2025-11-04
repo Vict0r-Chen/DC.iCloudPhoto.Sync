@@ -18,6 +18,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private const int DefaultPageSize = 50;
 
     private readonly List<FileSyncItem> _allPreviewItems = new();
+    private readonly List<FileSyncItem> _filteredPreviewItems = new();
     private readonly ObservableCollection<FileSyncItem> _pagedItems = new();
     private readonly StringBuilder _logBuilder = new();
 
@@ -31,6 +32,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private int _currentPage = 1;
     private bool _isBusy;
     private string _logText = string.Empty;
+    private bool _showPendingCopy = true;
+    private bool _showUpToDate = false;
+    private bool _showTargetOnly = true;
 
     public MainWindow()
     {
@@ -122,9 +126,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
 
-    public int TotalPages => Math.Max(1, (int)Math.Ceiling((double)_allPreviewItems.Count / PageSize));
+    public int TotalPages => Math.Max(1, (int)Math.Ceiling((double)_filteredPreviewItems.Count / PageSize));
 
-    public string PageSummary => $"第 {CurrentPage} 页 / 共 {TotalPages} 页（{_allPreviewItems.Count} 条）";
+    public string PageSummary => $"第 {CurrentPage} 页 / 共 {TotalPages} 页（{_filteredPreviewItems.Count} 条）";
 
     public bool IsBusy
     {
@@ -148,6 +152,48 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         get => _logText;
         private set => SetProperty(ref _logText, value);
     }
+
+    public bool ShowPendingCopy
+    {
+        get => _showPendingCopy;
+        set
+        {
+            if (SetProperty(ref _showPendingCopy, value))
+            {
+                ApplyFilter();
+            }
+        }
+    }
+
+    public bool ShowUpToDate
+    {
+        get => _showUpToDate;
+        set
+        {
+            if (SetProperty(ref _showUpToDate, value))
+            {
+                ApplyFilter();
+            }
+        }
+    }
+
+    public bool ShowTargetOnly
+    {
+        get => _showTargetOnly;
+        set
+        {
+            if (SetProperty(ref _showTargetOnly, value))
+            {
+                ApplyFilter();
+            }
+        }
+    }
+
+    public int PendingCopyCount => _allPreviewItems.Count(i => i.Status == SyncStatus.PendingCopy);
+    public int UpToDateCount => _allPreviewItems.Count(i => i.Status == SyncStatus.UpToDate);
+    public int TargetOnlyCount => _allPreviewItems.Count(i => i.Status == SyncStatus.TargetOnly);
+    public int TotalItemsCount => _allPreviewItems.Count;
+    public string StatisticsSummary => $"共 {TotalItemsCount} 项：等待同步 {PendingCopyCount}，已存在 {UpToDateCount}，仅目标存在 {TargetOnlyCount}";
 
     private async void OnPreviewClicked(object sender, RoutedEventArgs e)
     {
@@ -291,21 +337,49 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         _allPreviewItems.Clear();
         _allPreviewItems.AddRange(items);
+        OnPropertyChanged(nameof(PendingCopyCount));
+        OnPropertyChanged(nameof(UpToDateCount));
+        OnPropertyChanged(nameof(TargetOnlyCount));
+        OnPropertyChanged(nameof(TotalItemsCount));
+        OnPropertyChanged(nameof(StatisticsSummary));
         CurrentPage = 1;
-        RefreshPagination();
+        ApplyFilter();
         OnPropertyChanged(nameof(CanSync));
+    }
+
+    private void ApplyFilter()
+    {
+        _filteredPreviewItems.Clear();
+
+        foreach (var item in _allPreviewItems)
+        {
+            bool shouldShow = item.Status switch
+            {
+                SyncStatus.PendingCopy => ShowPendingCopy,
+                SyncStatus.UpToDate => ShowUpToDate,
+                SyncStatus.TargetOnly => ShowTargetOnly,
+                _ => false
+            };
+
+            if (shouldShow)
+            {
+                _filteredPreviewItems.Add(item);
+            }
+        }
+
+        RefreshPagination();
     }
 
     private void RefreshPagination()
     {
         _pagedItems.Clear();
-        var desiredPage = _allPreviewItems.Count == 0
+        var desiredPage = _filteredPreviewItems.Count == 0
             ? 1
             : Math.Max(1, Math.Min(CurrentPage, TotalPages));
         CurrentPage = desiredPage;
 
         var skip = (CurrentPage - 1) * PageSize;
-        foreach (var item in _allPreviewItems.Skip(skip).Take(PageSize))
+        foreach (var item in _filteredPreviewItems.Skip(skip).Take(PageSize))
         {
             _pagedItems.Add(item);
         }
@@ -733,8 +807,16 @@ public sealed class FileSyncItem : INotifyPropertyChanged
     public long? SourceSize
     {
         get => _sourceSize;
-        set => SetProperty(ref _sourceSize, value);
+        set
+        {
+            if (SetProperty(ref _sourceSize, value))
+            {
+                OnPropertyChanged(nameof(SourceSizeMB));
+            }
+        }
     }
+
+    public string? SourceSizeMB => _sourceSize.HasValue ? $"{_sourceSize.Value / (1024.0 * 1024.0):F2}" : null;
 
     public DateTime? SourceModified
     {
@@ -757,8 +839,16 @@ public sealed class FileSyncItem : INotifyPropertyChanged
     public long? TargetSize
     {
         get => _targetSize;
-        set => SetProperty(ref _targetSize, value);
+        set
+        {
+            if (SetProperty(ref _targetSize, value))
+            {
+                OnPropertyChanged(nameof(TargetSizeMB));
+            }
+        }
     }
+
+    public string? TargetSizeMB => _targetSize.HasValue ? $"{_targetSize.Value / (1024.0 * 1024.0):F2}" : null;
 
     public DateTime? TargetModified
     {
