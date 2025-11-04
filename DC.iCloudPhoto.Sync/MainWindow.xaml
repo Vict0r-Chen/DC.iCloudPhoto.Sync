@@ -70,7 +70,10 @@
                                               IsChecked="{Binding IncludeJpg}"
                                               Margin="0,0,16,0" />
                                     <CheckBox Content="MP4"
-                                              IsChecked="{Binding IncludeMp4}" />
+                                              IsChecked="{Binding IncludeMp4}"
+                                              Margin="0,0,16,0" />
+                                    <CheckBox Content="MOV"
+                                              IsChecked="{Binding IncludeMov}" />
                                 </StackPanel>
                             </StackPanel>
                         </Grid>
@@ -131,6 +134,12 @@
                                   AlternatingRowBackground="#FFF1F5F9"
                                   GridLinesVisibility="Horizontal"
                                   HeadersVisibility="Column">
+                            <DataGrid.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="在源文件夹中打开" Click="OnOpenSourceFolderClicked" />
+                                    <MenuItem Header="在目标文件夹中打开" Click="OnOpenTargetFolderClicked" />
+                                </ContextMenu>
+                            </DataGrid.ContextMenu>
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="状态" Binding="{Binding StatusLabel}" Width="120" />
                                 <DataGridTextColumn Header="文件名" Binding="{Binding FileName}" Width="*" />
