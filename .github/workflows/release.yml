@@ -7,6 +7,9 @@ on:
     tags:
       - 'v*.*.*'  # 触发条件: 推送形如 v1.0.0 的 tag
 
+permissions:
+  contents: write
+
 jobs:
   release:
     runs-on: windows-latest
@@ -48,7 +51,7 @@ jobs:
     # 打包发布文件
     - name: Create release archive
       run: |
-        Compress-Archive -Path ./release/* -DestinationPath ./DC.iCloudPhoto.Sync-${{ steps.tag_name.outputs.TAG_NAME }}.zip
+        Compress-Archive -Path ./release/* -DestinationPath ./iCloudPhoto.Sync-${{ steps.tag_name.outputs.TAG_NAME }}.zip
       shell: pwsh
 
     # 生成 Release Notes
@@ -71,7 +74,7 @@ jobs:
 
         ## 安装说明
 
-        1. 下载 ``DC.iCloudPhoto.Sync-${{ steps.tag_name.outputs.TAG_NAME }}.zip``
+        1. 下载 ``iCloudPhoto.Sync-${{ steps.tag_name.outputs.TAG_NAME }}.zip``
         2. 解压到任意目录
         3. 运行 ``DC.iCloudPhoto.Sync.exe``
 
@@ -91,7 +94,7 @@ jobs:
         name: Release ${{ steps.tag_name.outputs.TAG_NAME }}
         body_path: release_notes.txt
         files: |
-          ./DC.iCloudPhoto.Sync-${{ steps.tag_name.outputs.TAG_NAME }}.zip
+          ./iCloudPhoto.Sync-${{ steps.tag_name.outputs.TAG_NAME }}.zip
         draft: false
         prerelease: false
       env:
