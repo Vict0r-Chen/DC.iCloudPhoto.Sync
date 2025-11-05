@@ -1,0 +1,98 @@
+# This workflow creates a GitHub Release when a version tag is pushed
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # 触发条件: 推送形如 v1.0.0 的 tag
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    env:
+      Project_Path: DC.iCloudPhoto.Sync/DC.iCloudPhoto.Sync.csproj
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    # 获取 tag 名称
+    - name: Get version from tag
+      id: tag_name
+      run: |
+        echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      shell: bash
+
+    # Install the .NET Core workload
+    - name: Install .NET Core
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+
+    # Restore dependencies
+    - name: Restore dependencies
+      run: dotnet restore $env:Project_Path
+
+    # Build the application in Release mode
+    - name: Build
+      run: dotnet build $env:Project_Path --configuration Release --no-restore
+
+    # Publish the application
+    - name: Publish
+      run: dotnet publish $env:Project_Path --configuration Release --output ./release --no-build
+
+    # 打包发布文件
+    - name: Create release archive
+      run: |
+        Compress-Archive -Path ./release/* -DestinationPath ./DC.iCloudPhoto.Sync-${{ steps.tag_name.outputs.TAG_NAME }}.zip
+      shell: pwsh
+
+    # 生成 Release Notes
+    - name: Generate Release Notes
+      id: release_notes
+      run: |
+        # 获取上一个 tag
+        $previousTag = git describe --tags --abbrev=0 HEAD^ 2>$null
+        if ($previousTag) {
+          $changelog = git log --pretty=format:"- %s (%h)" "$previousTag..HEAD"
+        } else {
+          $changelog = git log --pretty=format:"- %s (%h)"
+        }
+
+        # 保存到文件
+        $releaseNotes = @"
+        ## 更新内容
+
+        $changelog
+
+        ## 安装说明
+
+        1. 下载 ``DC.iCloudPhoto.Sync-${{ steps.tag_name.outputs.TAG_NAME }}.zip``
+        2. 解压到任意目录
+        3. 运行 ``DC.iCloudPhoto.Sync.exe``
+
+        ## 系统要求
+
+        - Windows 10 或更高版本
+        - .NET 8.0 Runtime
+        "@
+
+        $releaseNotes | Out-File -FilePath release_notes.txt -Encoding UTF8
+      shell: pwsh
+
+    # 创建 GitHub Release
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        name: Release ${{ steps.tag_name.outputs.TAG_NAME }}
+        body_path: release_notes.txt
+        files: |
+          ./DC.iCloudPhoto.Sync-${{ steps.tag_name.outputs.TAG_NAME }}.zip
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
