@@ -1,0 +1,100 @@
+# 当推送 tag 时自动创建 GitHub Release
+# 使用方法：git tag v1.0.0 && git push origin v1.0.0
+
+name: Create Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # 匹配所有以 v 开头的 tag，如 v1.0.0, v2.1.3
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    permissions:
+      contents: write  # 需要写权限来创建 release
+
+    env:
+      Project_Path: DC.iCloudPhoto.Sync/DC.iCloudPhoto.Sync.csproj
+      App_Name: DC.iCloudPhoto.Sync
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    # 获取 tag 名称
+    - name: Get version from tag
+      id: get_version
+      run: |
+        $version = $env:GITHUB_REF -replace 'refs/tags/', ''
+        echo "version=$version" >> $env:GITHUB_OUTPUT
+        echo "版本: $version"
+      shell: pwsh
+
+    # 安装 .NET
+    - name: Install .NET Core
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+
+    # 恢复依赖
+    - name: Restore dependencies
+      run: dotnet restore $env:Project_Path
+
+    # 构建 Release 版本
+    - name: Build Release
+      run: dotnet build $env:Project_Path --configuration Release --no-restore
+
+    # 发布应用程序
+    - name: Publish
+      run: dotnet publish $env:Project_Path --configuration Release --output ./publish --no-build
+
+    # 创建 ZIP 压缩包
+    - name: Create ZIP archive
+      run: |
+        $version = "${{ steps.get_version.outputs.version }}"
+        $zipName = "$env:App_Name-$version-win-x64.zip"
+        Compress-Archive -Path ./publish/* -DestinationPath ./$zipName
+        echo "zip_name=$zipName" >> $env:GITHUB_OUTPUT
+        echo "已创建: $zipName"
+      id: create_zip
+      shell: pwsh
+
+    # 创建 GitHub Release
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        name: Release ${{ steps.get_version.outputs.version }}
+        body: |
+          ## 📦 ${{ env.App_Name }} ${{ steps.get_version.outputs.version }}
+
+          ### 下载和使用
+
+          1. 下载下方的 `${{ steps.create_zip.outputs.zip_name }}` 文件
+          2. 解压到任意目录
+          3. 运行 `DC.iCloudPhoto.Sync.exe`
+
+          ### 主要功能
+
+          - iCloud 照片同步工具
+          - 支持 JPG/MP4/MOV 文件类型
+          - 智能文件比对和同步
+          - 详细的日志记录
+
+          ### 系统要求
+
+          - Windows 10/11
+          - .NET 8.0 Runtime（通常已内置）
+
+          ---
+
+          **完整更新日志**：请查看提交记录
+        files: |
+          ${{ steps.create_zip.outputs.zip_name }}
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
