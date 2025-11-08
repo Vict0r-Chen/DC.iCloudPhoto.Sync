@@ -72,8 +72,8 @@
                                     <CheckBox Content="MP4"
                                               IsChecked="{Binding IncludeMp4}"
                                               Margin="0,0,16,0" />
-                                    <CheckBox Content="MOV"
-                                              IsChecked="{Binding IncludeMov}" />
+                                    <CheckBox Content="Video(MOV)"
+                                              IsChecked="{Binding IncludeVideoMov}" />
                                 </StackPanel>
                             </StackPanel>
                         </Grid>
