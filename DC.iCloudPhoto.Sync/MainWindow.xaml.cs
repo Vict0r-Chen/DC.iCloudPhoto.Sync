@@ -39,7 +39,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private DateTime? _endDate;
     private bool _includeJpg = true;
     private bool _includeMp4 = true;
-    private bool _includeMov = true;
+    private bool _includeVideoMov = true;
     private int _pageSize = DefaultPageSize;
     private int _currentPage = 1;
     private bool _isBusy;
@@ -136,12 +136,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
 
-    public bool IncludeMov
+    public bool IncludeVideoMov
     {
-        get => _includeMov;
+        get => _includeVideoMov;
         set
         {
-            if (SetProperty(ref _includeMov, value))
+            if (SetProperty(ref _includeVideoMov, value))
             {
                 OnPropertyChanged(nameof(CanSync));
                 SaveSettings();
@@ -606,7 +606,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             extensions.Add(".mp4");
         }
 
-        if (IncludeMov)
+        if (IncludeVideoMov)
         {
             extensions.Add(".mov");
         }
@@ -786,6 +786,21 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 if (string.IsNullOrEmpty(extension) || !extensions.Contains(extension))
                 {
                     continue;
+                }
+
+                // Video(MOV) 特殊逻辑：如果是 .mov 文件且存在同名 .heic 文件，则跳过
+                if (extension.Equals(".mov", StringComparison.OrdinalIgnoreCase))
+                {
+                    var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(file);
+                    var directory = Path.GetDirectoryName(file);
+                    if (!string.IsNullOrEmpty(directory) && !string.IsNullOrEmpty(fileNameWithoutExtension))
+                    {
+                        var heicPath = Path.Combine(directory, fileNameWithoutExtension + ".heic");
+                        if (File.Exists(heicPath))
+                        {
+                            continue; // 跳过这个 MOV 文件，因为存在同名的 HEIC 文件
+                        }
+                    }
                 }
             }
 
@@ -989,7 +1004,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     _endDate = settings.EndDate;
                     _includeJpg = settings.IncludeJpg;
                     _includeMp4 = settings.IncludeMp4;
-                    _includeMov = settings.IncludeMov;
+                    _includeVideoMov = settings.IncludeVideoMov;
 
                     OnPropertyChanged(nameof(SourceFolder));
                     OnPropertyChanged(nameof(TargetFolder));
@@ -997,7 +1012,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     OnPropertyChanged(nameof(EndDate));
                     OnPropertyChanged(nameof(IncludeJpg));
                     OnPropertyChanged(nameof(IncludeMp4));
-                    OnPropertyChanged(nameof(IncludeMov));
+                    OnPropertyChanged(nameof(IncludeVideoMov));
                 }
             }
         }
@@ -1019,7 +1034,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 EndDate = EndDate,
                 IncludeJpg = IncludeJpg,
                 IncludeMp4 = IncludeMp4,
-                IncludeMov = IncludeMov
+                IncludeVideoMov = IncludeVideoMov
             };
 
             var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
@@ -1213,5 +1228,5 @@ internal sealed class UserSettings
     public DateTime? EndDate { get; set; }
     public bool IncludeJpg { get; set; } = true;
     public bool IncludeMp4 { get; set; } = true;
-    public bool IncludeMov { get; set; } = true;
+    public bool IncludeVideoMov { get; set; } = true;
 }
