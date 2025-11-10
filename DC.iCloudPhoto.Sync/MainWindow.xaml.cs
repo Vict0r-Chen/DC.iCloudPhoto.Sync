@@ -788,7 +788,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     continue;
                 }
 
-                // Video(MOV) 特殊逻辑：如果是 .mov 文件且存在同名 .heic 文件，则跳过
+                // Video(MOV) 特殊逻辑：如果是 .mov 文件且存在同名 .heic 文件或者 JPG 文件，则跳过
                 if (extension.Equals(".mov", StringComparison.OrdinalIgnoreCase))
                 {
                     var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(file);
@@ -796,9 +796,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     if (!string.IsNullOrEmpty(directory) && !string.IsNullOrEmpty(fileNameWithoutExtension))
                     {
                         var heicPath = Path.Combine(directory, fileNameWithoutExtension + ".heic");
-                        if (File.Exists(heicPath))
+                        var jpgPath = Path.Combine(directory, fileNameWithoutExtension + ".jpg");
+                        if (File.Exists(heicPath) || File.Exists(jpgPath))
                         {
-                            continue; // 跳过这个 MOV 文件，因为存在同名的 HEIC 文件
+                            continue; // 跳过这个 MOV 文件，因为存在同名的 HEIC 文件或者 JPG 文件
                         }
                     }
                 }
